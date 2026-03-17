@@ -10,6 +10,7 @@ jobs:
 
     env:
       ANDROID_NDK_VERSION: 26.1.10909125
+      NCNN_URL: https://github.com/Tencent/ncnn/releases/download/20250503/ncnn-20250503-android-vulkan-shared.zip
 
     steps:
       - name: Checkout
@@ -40,26 +41,25 @@ jobs:
           mkdir -p 3rdparty
 
           echo "=== Cloning libwebp ==="
-          git clone --depth 1 https://chromium.googlesource.com/webm/libwebp \
+          git clone --depth 1 https://github.com/webmproject/libwebp \
             3rdparty/libwebp
-
-          echo "=== Cloning ncnn ==="
-          git clone --depth 1 --recurse-submodules \
-            https://github.com/Tencent/ncnn.git \
-            3rdparty/ncnn
 
           echo "=== Cloning MNN ==="
           git clone --depth 1 \
             https://github.com/alibaba/MNN.git \
             3rdparty/mnn
 
+          echo "=== Downloading prebuilt ncnn Android ==="
+          wget -q $NCNN_URL -O ncnn-android-vulkan-shared.zip
+          unzip -q ncnn-android-vulkan-shared.zip -d 3rdparty/ncnn-android-vulkan-shared
+
           echo "=== Downloading OpenCV Android SDK ==="
           wget -q https://github.com/opencv/opencv/releases/download/4.8.0/opencv-4.8.0-android-sdk.zip
           unzip -q opencv-4.8.0-android-sdk.zip
           mv OpenCV-android-sdk 3rdparty/opencv
 
-          echo "=== Verifying OpenCV config path ==="
-          find 3rdparty/opencv -name "OpenCVConfig.cmake" | head -5
+          echo "=== Locating OpenCVConfig.cmake ==="
+          find 3rdparty/opencv -name "OpenCVConfig.cmake"
 
           echo "=== 3rdparty contents ==="
           ls -la 3rdparty/
@@ -80,9 +80,8 @@ jobs:
       - name: Build CLI (all engines)
         run: |
           NDK_TOOLCHAIN=$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION/build/cmake/android.toolchain.cmake
-
-          # Point CMake to the correct OpenCV arm64 config
           OPENCV_DIR=$GITHUB_WORKSPACE/3rdparty/opencv/sdk/native/jni/abi-arm64-v8a
+          NCNN_DIR=$GITHUB_WORKSPACE/3rdparty/ncnn-android-vulkan-shared/arm64-v8a/lib/cmake/ncnn
 
           for ENGINE in RealSR Waifu2x SRMD RealCUGAN Anime4k Resize MNN-SR; do
             JNI_PATH="RealSR-NCNN-Android-CLI/$ENGINE/src/main/jni"
@@ -95,7 +94,8 @@ jobs:
                 -DANDROID_ABI=arm64-v8a \
                 -DANDROID_PLATFORM=android-24 \
                 -DCMAKE_TOOLCHAIN_FILE=$NDK_TOOLCHAIN \
-                -DOpenCV_DIR=$OPENCV_DIR
+                -DOpenCV_DIR=$OPENCV_DIR \
+                -Dncnn_DIR=$NCNN_DIR
               ninja
               cd $GITHUB_WORKSPACE
             else
