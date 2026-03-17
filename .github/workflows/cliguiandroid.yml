@@ -35,6 +35,32 @@ jobs:
         run: |
           sdkmanager "ndk;$ANDROID_NDK_VERSION"
 
+      - name: Clone 3rdparty dependencies
+        run: |
+          mkdir -p 3rdparty
+
+          echo "=== Cloning libwebp ==="
+          git clone --depth 1 https://chromium.googlesource.com/webm/libwebp \
+            3rdparty/libwebp
+
+          echo "=== Cloning ncnn ==="
+          git clone --depth 1 --recurse-submodules \
+            https://github.com/Tencent/ncnn.git \
+            3rdparty/ncnn
+
+          echo "=== Cloning MNN ==="
+          git clone --depth 1 \
+            https://github.com/alibaba/MNN.git \
+            3rdparty/mnn
+
+          echo "=== Downloading OpenCV Android SDK ==="
+          wget -q https://github.com/opencv/opencv/releases/download/4.8.0/opencv-4.8.0-android-sdk.zip
+          unzip -q opencv-4.8.0-android-sdk.zip
+          mv OpenCV-android-sdk 3rdparty/opencv
+
+          echo "=== 3rdparty contents ==="
+          ls -la 3rdparty/
+
       - name: Verify models
         run: |
           echo "=== Checking model files ==="
@@ -42,7 +68,7 @@ jobs:
           find RealSR-NCNN-Android-CLI/assets -name "*.bin" | while read f; do
             SIZE=$(stat -c%s "$f")
             if [ "$SIZE" -lt 1024 ]; then
-              echo "❌ Suspiciously small file (possible LFS pointer): $f ($SIZE bytes)"
+              echo "❌ Possible LFS pointer: $f ($SIZE bytes)"
               exit 1
             fi
           done
@@ -66,7 +92,7 @@ jobs:
               ninja
               cd $GITHUB_WORKSPACE
             else
-              echo "=== Skipping $ENGINE (no CMakeLists.txt found) ==="
+              echo "=== Skipping $ENGINE (no CMakeLists.txt) ==="
             fi
           done
 
