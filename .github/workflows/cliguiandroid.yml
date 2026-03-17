@@ -56,13 +56,11 @@ jobs:
           echo "=== Downloading OpenCV Android SDK ==="
           wget -q https://github.com/opencv/opencv/releases/download/4.8.0/opencv-4.8.0-android-sdk.zip
           unzip -q opencv-4.8.0-android-sdk.zip
-          mv OpenCV-android-sdk 3rdparty/opencv
+          # Name must match what cmake expects: 3rdparty/opencv-android-sdk
+          mv OpenCV-android-sdk 3rdparty/opencv-android-sdk
 
-          echo "=== Locating OpenCVConfig.cmake ==="
-          find 3rdparty/opencv -name "OpenCVConfig.cmake"
-
-          echo "=== 3rdparty contents ==="
-          ls -la 3rdparty/
+          echo "=== Verifying OpenCVConfig.cmake ==="
+          find 3rdparty/opencv-android-sdk -name "OpenCVConfig.cmake"
 
       - name: Verify models
         run: |
@@ -80,8 +78,11 @@ jobs:
       - name: Build CLI (all engines)
         run: |
           NDK_TOOLCHAIN=$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION/build/cmake/android.toolchain.cmake
-          OPENCV_DIR=$GITHUB_WORKSPACE/3rdparty/opencv/sdk/native/jni/abi-arm64-v8a
+          OPENCV_DIR=$GITHUB_WORKSPACE/3rdparty/opencv-android-sdk/sdk/native/jni/abi-arm64-v8a
           NCNN_DIR=$GITHUB_WORKSPACE/3rdparty/ncnn-android-vulkan-shared/arm64-v8a/lib/cmake/ncnn
+
+          echo "=== OpenCV_DIR: $OPENCV_DIR ==="
+          echo "=== ncnn_DIR: $NCNN_DIR ==="
 
           for ENGINE in RealSR Waifu2x SRMD RealCUGAN Anime4k Resize MNN-SR; do
             JNI_PATH="RealSR-NCNN-Android-CLI/$ENGINE/src/main/jni"
