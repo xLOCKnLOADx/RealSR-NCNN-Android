@@ -12,76 +12,92 @@ jobs:
       ANDROID_NDK_VERSION: 26.1.10909125
 
     steps:
-      # Checkout repo + all submodules (ncnn, etc.)
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # Install native build tools
       - name: Install dependencies
         run: |
           sudo apt update
           sudo apt install -y cmake ninja-build unzip
 
-      # Setup Java
       - name: Setup JDK
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
-      # Setup Android SDK
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      # Install NDK
       - name: Install NDK
         run: |
           sdkmanager "ndk;$ANDROID_NDK_VERSION"
 
-      # Verify models are real files, not LFS pointers
       - name: Verify models
         run: |
-          file RealSR-NCNN-Android-CLI/models/**/*.bin | grep -v "ASCII\|pointer" || \
-            (echo "❌ LFS placeholders detected — commit real model files!" && exit 1)
+          echo "=== Checking model files ==="
+          find RealSR-NCNN-Android-CLI/assets -name "*.bin" -o -name "*.param" | head -20
+          find RealSR-NCNN-Android-CLI/assets -name "*.bin" | while read f; do
+            SIZE=$(stat -c%s "$f")
+            if [ "$SIZE" -lt 1024 ]; then
+              echo "❌ Suspiciously small file (possible LFS pointer): $f ($SIZE bytes)"
+              exit 1
+            fi
+          done
+          echo "✅ Models look real"
 
-      # Build CLI
-      - name: Build CLI
+      - name: Build CLI (all engines)
         run: |
-          cd RealSR-NCNN-Android-CLI
-          mkdir build && cd build
+          NDK_TOOLCHAIN=$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION/build/cmake/android.toolchain.cmake
 
-          cmake .. \
-            -G Ninja \
-            -DANDROID_ABI=arm64-v8a \
-            -DANDROID_PLATFORM=android-24 \
-            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION/build/cmake/android.toolchain.cmake
+          for ENGINE in RealSR Waifu2x SRMD RealCUGAN Anime4k Resize MNN-SR; do
+            JNI_PATH="RealSR-NCNN-Android-CLI/$ENGINE/src/main/jni"
+            if [ -f "$JNI_PATH/CMakeLists.txt" ]; then
+              echo "=== Building $ENGINE ==="
+              mkdir -p "$JNI_PATH/build"
+              cd "$JNI_PATH/build"
+              cmake .. \
+                -G Ninja \
+                -DANDROID_ABI=arm64-v8a \
+                -DANDROID_PLATFORM=android-24 \
+                -DCMAKE_TOOLCHAIN_FILE=$NDK_TOOLCHAIN
+              ninja
+              cd $GITHUB_WORKSPACE
+            else
+              echo "=== Skipping $ENGINE (no CMakeLists.txt found) ==="
+            fi
+          done
 
-          ninja
-
-      # Copy only the binary + models into GUI assets
       - name: Prepare assets
         run: |
           mkdir -p RealSR-NCNN-Android-GUI/app/src/main/assets
 
-          # CLI binary only (not the whole build dir)
-          cp RealSR-NCNN-Android-CLI/build/realsr-ncnn \
+          for ENGINE in RealSR Waifu2x SRMD RealCUGAN Anime4k Resize MNN-SR; do
+            BUILD_PATH="RealSR-NCNN-Android-CLI/$ENGINE/src/main/jni/build"
+            if [ -d "$BUILD_PATH" ]; then
+              echo "=== Copying binaries from $ENGINE ==="
+              find "$BUILD_PATH" -maxdepth 1 -type f \
+                ! -name "*.cmake" \
+                ! -name "*.ninja" \
+                ! -name "*.txt" \
+                ! -name "Makefile" \
+                -exec cp {} RealSR-NCNN-Android-GUI/app/src/main/assets/ \;
+            fi
+          done
+
+          echo "=== Copying models ==="
+          cp -r RealSR-NCNN-Android-CLI/assets/. \
             RealSR-NCNN-Android-GUI/app/src/main/assets/
 
-          # Models
-          cp -r RealSR-NCNN-Android-CLI/models \
-            RealSR-NCNN-Android-GUI/app/src/main/assets/
-
-      # Debug: confirm asset structure before building
       - name: Verify asset structure
         run: |
-          echo "=== Assets ==="
+          echo "=== Assets root ==="
           ls -la RealSR-NCNN-Android-GUI/app/src/main/assets/
-          echo "=== Models ==="
-          ls -la RealSR-NCNN-Android-GUI/app/src/main/assets/models/
+          echo "=== Model folders ==="
+          ls -la RealSR-NCNN-Android-GUI/app/src/main/assets/*/ 2>/dev/null || echo "No subfolders"
 
-      # Cache Gradle dependencies
       - name: Cache Gradle
         uses: actions/cache@v4
         with:
@@ -89,14 +105,12 @@ jobs:
           key: gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: gradle-
 
-      # Build APK
       - name: Build APK
         run: |
           cd RealSR-NCNN-Android-GUI
           chmod +x gradlew
           ./gradlew assembleDebug
 
-      # Upload APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
